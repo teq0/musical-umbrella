@@ -9,7 +9,7 @@ on:
 
 env:
   DOCKER_REGISTRY: docker.io
-  DOCKER_IMAGE_NAME: ${{ github.repository }}
+  DOCKER_IMAGE_NAME: teq0v2/musical-umbrella
 
 jobs:
   build-and-deploy:
