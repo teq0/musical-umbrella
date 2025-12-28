@@ -32,7 +32,16 @@ jobs:
 
     - name: Read VERSION file
       id: version
-      run: echo "version=$(cat VERSION | tr -d '\n')" >> $GITHUB_OUTPUT
+      run: |
+        if [ -f VERSION ]; then
+          version=$(cat VERSION | tr -d '\n\r' | tr -d '[:space:]')
+          if [ -z "$version" ]; then
+            version="0.0.0"
+          fi
+        else
+          version="0.0.0"
+        fi
+        echo "version=$version" >> $GITHUB_OUTPUT
 
     - name: Get short SHA
       id: sha
@@ -70,12 +79,7 @@ jobs:
         images: ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}
         tags: |
           type=raw,value=${{ steps.version.outputs.version }}-${{ steps.sha.outputs.sha }}
-          type=ref,event=branch
           type=ref,event=pr
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=semver,pattern={{major}}
-          type=sha,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Build and push Docker image
