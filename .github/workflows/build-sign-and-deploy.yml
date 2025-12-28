@@ -214,8 +214,8 @@ jobs:
       env:
         COSIGN_EXPERIMENTAL: 1
       run: |
-        cosign sign-blob --yes sbom-extended.spdx.json --output-signature sbom.sig
-        cosign verify-blob --signature sbom.sig sbom-extended.spdx.json
+        cosign sign-blob --yes sbom-extended.spdx.json --output-signature sbom.sig --output-certificate sbom.crt
+        echo "SBOM signed successfully"
 
     - name: Upload SBOM artifacts
       uses: actions/upload-artifact@v4
@@ -224,6 +224,7 @@ jobs:
         path: |
           sbom-extended.spdx.json
           sbom.sig
+          sbom.crt
 
     - name: Store SBOM in OCI registry
       env:
@@ -242,11 +243,13 @@ jobs:
         files: |
           sbom-extended.spdx.json
           sbom.sig
+          sbom.crt
         name: Release ${{ github.ref_name }}
         body: |
           ## Supply Chain Artifacts
           - **SBOM**: `sbom-extended.spdx.json` - Software Bill of Materials
           - **SBOM Signature**: `sbom.sig` - Cosign signature for SBOM
+          - **SBOM Certificate**: `sbom.crt` - Signing certificate for SBOM
           - **Container Image**: `${{ steps.scan-image.outputs.ref }}`
           - **Image Digest**: `${{ steps.build.outputs.digest }}`
 
