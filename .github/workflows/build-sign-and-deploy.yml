@@ -30,6 +30,14 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Read VERSION file
+      id: version
+      run: echo "version=$(cat VERSION | tr -d '\n')" >> $GITHUB_OUTPUT
+
+    - name: Get short SHA
+      id: sha
+      run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
@@ -61,6 +69,7 @@ jobs:
       with:
         images: ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}
         tags: |
+          type=raw,value=${{ steps.version.outputs.version }}-${{ steps.sha.outputs.sha }}
           type=ref,event=branch
           type=ref,event=pr
           type=semver,pattern={{version}}
@@ -76,6 +85,7 @@ jobs:
         context: .
         platforms: linux/amd64,linux/arm64
         push: ${{ github.event_name != 'pull_request' }}
+        load: ${{ github.event_name == 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: |
           ${{ steps.meta.outputs.labels }}
