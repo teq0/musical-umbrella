@@ -4,6 +4,9 @@
 BINARY_NAME=musical-umbrella
 DOCKER_IMAGE=musical-umbrella
 PORT?=8080
+GOOS?=$(shell go env GOOS)
+GOARCH?=$(shell go env GOARCH)
+BUILD_DIR=build/$(GOOS)-$(GOARCH)
 
 # Default target
 help:
@@ -18,13 +21,14 @@ help:
 
 # Build the application
 build: deps
-	@echo "Building $(BINARY_NAME)..."
-	go build -o $(BINARY_NAME) .
+	@echo "Building $(BINARY_NAME) for $(GOOS)/$(GOARCH)..."
+	@mkdir -p $(BUILD_DIR)
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $(BUILD_DIR)/$(BINARY_NAME) .
 
 # Run the application
 run: build
 	@echo "Running $(BINARY_NAME) on port $(PORT)..."
-	PORT=$(PORT) ./$(BINARY_NAME)
+	PORT=$(PORT) ./$(BUILD_DIR)/$(BINARY_NAME)
 
 # Run tests
 test: deps
@@ -35,7 +39,7 @@ test: deps
 clean:
 	@echo "Cleaning up..."
 	go clean
-	rm -f $(BINARY_NAME)
+	rm -rf build/
 
 # Download and tidy dependencies
 deps:
