@@ -225,6 +225,37 @@ jobs:
           sbom-extended.spdx.json
           sbom.sig
 
+    - name: Store SBOM in OCI registry
+      env:
+        COSIGN_EXPERIMENTAL: 1
+      run: |
+        # Push SBOM as OCI artifact
+        cosign attach sbom --sbom sbom-extended.spdx.json ${{ steps.scan-image.outputs.ref }}
+        
+        # Sign the SBOM attachment
+        cosign sign --yes ${{ steps.scan-image.outputs.ref }}
+
+    - name: Store SBOM in GitHub Release (on tags)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          sbom-extended.spdx.json
+          sbom.sig
+        name: Release ${{ github.ref_name }}
+        body: |
+          ## Supply Chain Artifacts
+          - **SBOM**: `sbom-extended.spdx.json` - Software Bill of Materials
+          - **SBOM Signature**: `sbom.sig` - Cosign signature for SBOM
+          - **Container Image**: `${{ steps.scan-image.outputs.ref }}`
+          - **Image Digest**: `${{ steps.build.outputs.digest }}`
+
+    - name: Submit SBOM to GitHub Dependency Graph
+      if: github.event_name != 'pull_request'
+      uses: advanced-security/spdx-dependency-submission-action@v0.0.1
+      with:
+        filePath: sbom-extended.spdx.json
+
     - name: Create build summary
       run: |
         echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
