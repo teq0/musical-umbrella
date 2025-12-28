@@ -127,7 +127,8 @@ jobs:
         done
         cosign sign --yes ${images}
 
-    - name: Generate SLSA provenance with scan results
+    - name: Generate SLSA build provenance
+      id: provenance
       uses: actions/attest-build-provenance@v1
       with:
         subject-name: ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}
@@ -135,6 +136,7 @@ jobs:
         push-to-registry: true
 
     - name: Attest vulnerability scan results
+      id: vuln-scan
       uses: actions/attest@v1
       with:
         subject-name: ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}
@@ -156,6 +158,72 @@ jobs:
               "scanFinishedOn": "${{ github.run_id }}"
             }
           }
+
+    - name: Generate SBOM with Syft
+      run: |
+        # Install Syft
+        curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+        
+        # Generate SBOM referencing the container image
+        syft ${{ steps.scan-image.outputs.ref }} -o spdx-json=sbom.spdx.json
+        
+        # Add attestation references to SBOM
+        cat > sbom-extended.spdx.json << EOF
+        {
+          "spdxVersion": "SPDX-2.3",
+          "dataLicense": "CC0-1.0",
+          "SPDXID": "SPDXRef-DOCUMENT",
+          "name": "musical-umbrella-sbom",
+          "documentNamespace": "https://github.com/${{ github.repository }}/sbom/${{ github.run_id }}",
+          "creationInfo": {
+            "created": "$(date -u --iso-8601=seconds)",
+            "creators": ["Tool: syft", "Organization: GitHub Actions"]
+          },
+          "packages": $(jq '.packages' sbom.spdx.json),
+          "relationships": [
+            {
+              "spdxElementId": "SPDXRef-DOCUMENT",
+              "relationshipType": "DESCRIBES",
+              "relatedSpdxElement": "SPDXRef-Container"
+            },
+            {
+              "spdxElementId": "SPDXRef-Container",
+              "relationshipType": "HAS_ATTESTATION",
+              "relatedSpdxElement": "${{ steps.provenance.outputs.bundle-path }}"
+            },
+            {
+              "spdxElementId": "SPDXRef-Container",
+              "relationshipType": "HAS_ATTESTATION", 
+              "relatedSpdxElement": "${{ steps.vuln-scan.outputs.bundle-path }}"
+            }
+          ],
+          "externalDocumentRefs": [
+            {
+              "externalDocumentId": "DocumentRef-Container",
+              "spdxDocument": "${{ steps.scan-image.outputs.ref }}",
+              "checksum": {
+                "algorithm": "SHA256",
+                "checksumValue": "${{ steps.build.outputs.digest }}"
+              }
+            }
+          ]
+        }
+        EOF
+
+    - name: Sign SBOM
+      env:
+        COSIGN_EXPERIMENTAL: 1
+      run: |
+        cosign sign-blob --yes sbom-extended.spdx.json --output-signature sbom.sig
+        cosign verify-blob --signature sbom.sig sbom-extended.spdx.json
+
+    - name: Upload SBOM artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: sbom-artifacts
+        path: |
+          sbom-extended.spdx.json
+          sbom.sig
 
     - name: Create build summary
       run: |
