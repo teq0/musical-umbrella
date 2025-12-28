@@ -139,13 +139,22 @@ jobs:
       with:
         subject-name: ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}
         subject-digest: ${{ steps.build.outputs.digest }}
-        predicate-type: 'https://slsa.dev/provenance/v1'
+        predicate-type: 'https://github.com/in-toto/attestation/tree/main/spec/predicates/vuln'
         predicate: |
           {
-            "buildType": "vulnerability-scan",
-            "scanner": "trivy",
-            "scanDate": "${{ github.run_id }}",
-            "results": "trivy-results.sarif"
+            "invocation": {
+              "uri": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "event_id": "${{ github.run_id }}",
+              "builder_id": "trivy"
+            },
+            "scanner": {
+              "name": "trivy",
+              "version": "latest"
+            },
+            "metadata": {
+              "scanStartedOn": "${{ steps.build.outputs.digest }}",
+              "scanFinishedOn": "${{ github.run_id }}"
+            }
           }
 
     - name: Create build summary
