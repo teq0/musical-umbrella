@@ -434,20 +434,7 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         script: |
           // Get timezone from repository variable or default to UTC
-          let timezone = 'UTC';
-          try {
-            const { data: variables } = await github.rest.actions.listRepoVariables({
-              owner: context.repo.owner,
-              repo: context.repo.repo
-            });
-            
-            const tzVariable = variables.variables.find(v => v.name === 'BUILD_SUMMARY_TZ');
-            if (tzVariable) {
-              timezone = tzVariable.value;
-            }
-          } catch (error) {
-            console.log(`Could not fetch repository variables: ${error.message}`);
-          }
+          const timezone = '${{ vars.BUILD_SUMMARY_TZ }}' || 'UTC';
 
           // Format timestamp with timezone
           const now = new Date();
