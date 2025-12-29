@@ -20,6 +20,7 @@ jobs:
 
     outputs:
       scan-results: ${{ steps.scan-summary.outputs.results }}
+      security-artifact-id: ${{ steps.upload-security.outputs.artifact-id }}
 
     steps:
     - name: Checkout repository
@@ -73,6 +74,7 @@ jobs:
         echo "results={\"scan_date\":\"$scan_date\",\"total_vulnerabilities\":$total_vulns,\"scan_type\":\"filesystem\"}" >> $GITHUB_OUTPUT
 
     - name: Upload scan results artifact
+      id: upload-security
       uses: actions/upload-artifact@v4
       with:
         name: security-scan-results
@@ -93,6 +95,7 @@ jobs:
     outputs:
       image-digest: ${{ steps.build.outputs.digest }}
       image-tag: ${{ steps.meta.outputs.tags }}
+      sbom-artifact-id: ${{ steps.upload-sbom.outputs.artifact-id }}
 
     steps:
     - name: Checkout repository
@@ -179,6 +182,14 @@ jobs:
       run: |
         first_tag=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
         echo "ref=${first_tag}@${{ steps.build.outputs.digest }}" >> $GITHUB_OUTPUT
+
+    - name: Generate SLSA build provenance
+      id: provenance
+      uses: actions/attest-build-provenance@v1
+      with:
+        subject-name: ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}
+        subject-digest: ${{ steps.build.outputs.digest }}
+        push-to-registry: true
 
     - name: Attest vulnerability scan results
       id: vuln-scan
@@ -277,6 +288,7 @@ jobs:
         echo "SBOM signed successfully"
 
     - name: Upload SBOM artifacts
+      id: upload-sbom
       uses: actions/upload-artifact@v4
       with:
         name: sbom-artifacts
@@ -338,7 +350,8 @@ jobs:
         echo "### 🔗 Artifacts & Links" >> $GITHUB_STEP_SUMMARY
         echo "- 📦 [Container Image](${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }})" >> $GITHUB_STEP_SUMMARY
         echo "- 🛡️ [Security Scan Results](https://github.com/${{ github.repository }}/security/code-scanning)" >> $GITHUB_STEP_SUMMARY
-        echo "- 📋 [SBOM Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+        echo "- 📋 [Security Scan Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ needs.security-scan.outputs.security-artifact-id }})" >> $GITHUB_STEP_SUMMARY
+        echo "- 📄 [SBOM Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.upload-sbom.outputs.artifact-id }})" >> $GITHUB_STEP_SUMMARY
         echo "- 🔐 [Build Provenance](https://github.com/${{ github.repository }}/attestations)" >> $GITHUB_STEP_SUMMARY
         echo "- 🔍 [Vulnerability Attestation](https://github.com/${{ github.repository }}/attestations)" >> $GITHUB_STEP_SUMMARY
 
@@ -346,6 +359,7 @@ jobs:
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
         script: |
           const summary = `## 🚀 Build Summary
 
@@ -366,7 +380,8 @@ jobs:
           ### 🔗 Artifacts & Links
           - 📦 [Container Image](${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }})
           - 🛡️ [Security Scan Results](https://github.com/${{ github.repository }}/security/code-scanning)
-          - 📋 [SBOM Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - 📋 [Security Scan Artifacts](https://github.com/${{ github.repository }}/actions/runs/${context.runId}/artifacts/${{ needs.security-scan.outputs.security-artifact-id }})
+          - 📄 [SBOM Artifacts](https://github.com/${{ github.repository }}/actions/runs/${context.runId}/artifacts/${{ steps.upload-sbom.outputs.artifact-id }})
           - 🔐 [Build Provenance](https://github.com/${{ github.repository }}/attestations)
           - 🔍 [Vulnerability Attestation](https://github.com/${{ github.repository }}/attestations)
 
