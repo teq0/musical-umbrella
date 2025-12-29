@@ -157,7 +157,7 @@ jobs:
         images: ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}
         tags: |
           type=raw,value=${{ steps.version.outputs.version }}-${{ steps.sha.outputs.sha }},enable={{is_default_branch}}
-          type=ref,event=pr,prefix=pr-${{ steps.version.outputs.version }}-${{ steps.sha.outputs.sha }}-
+          type=ref,event=pr,prefix=${{ steps.version.outputs.version }}-${{ steps.sha.outputs.sha }}-
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Build and push Docker image
@@ -422,8 +422,8 @@ jobs:
         TAGS=$(curl -s "https://hub.docker.com/v2/repositories/${{ env.DOCKER_IMAGE_NAME }}/tags/?page_size=100" | jq -r '.results[].name')
         
         # Find tags matching this PR pattern (excluding current version)
-        CURRENT_TAG="pr-${{ steps.version.outputs.version }}-${{ steps.sha.outputs.sha }}-${{ github.event.pull_request.number }}"
-        PR_PATTERN="pr-.*-${{ github.event.pull_request.number }}$"
+        CURRENT_TAG="${{ steps.version.outputs.version }}-${{ steps.sha.outputs.sha }}-${{ github.event.pull_request.number }}"
+        PR_PATTERN=".*-${{ github.event.pull_request.number }}$"
         
         for tag in $TAGS; do
           if [[ $tag =~ $PR_PATTERN && $tag != $CURRENT_TAG ]]; then
