@@ -199,23 +199,27 @@ jobs:
       with:
         subject-name: ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}
         subject-digest: ${{ steps.build.outputs.digest }}
-        predicate-type: 'https://github.com/in-toto/attestation/tree/main/spec/predicates/vuln'
+        predicate-type: 'https://in-toto.io/attestation/vuln/v0.1'
         predicate: |
           {
             "invocation": {
-              "uri": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-              "event_id": "${{ github.run_id }}",
-              "builder_id": "trivy"
+              "configSource": {
+                "uri": "https://github.com/${{ github.repository }}",
+                "digest": {
+                  "sha1": "${{ github.sha }}"
+                },
+                "entryPoint": ".github/workflows/build-sign-and-deploy.yml"
+              }
             },
             "scanner": {
-              "name": "trivy",
+              "uri": "https://github.com/aquasecurity/trivy",
               "version": "latest"
             },
-            "metadata": ${{ needs.security-scan.outputs.scan-results }},
-            "results": {
-              "source": "trivy-source-results.json",
-              "sarif": "trivy-source-results.sarif"
-            }
+            "metadata": {
+              "scanStartedOn": "${{ fromJSON(needs.security-scan.outputs.scan-results).scan_date }}",
+              "scanFinishedOn": "${{ fromJSON(needs.security-scan.outputs.scan-results).scan_date }}"
+            },
+            "scanner.result": "trivy-source-results.json"
           }
 
     - name: Generate SBOM with Syft
@@ -248,17 +252,19 @@ jobs:
             {
               "spdxElementId": "SPDXRef-Container",
               "relationshipType": "HAS_ATTESTATION",
-              "relatedSpdxElement": "${{ steps.provenance.outputs.bundle-path }}"
+              "relatedSpdxElement": "SPDXRef-Attestation-Provenance",
+              "comment": "SLSA Build Provenance"
             },
             {
               "spdxElementId": "SPDXRef-Container",
               "relationshipType": "HAS_ATTESTATION", 
-              "relatedSpdxElement": "${{ steps.vuln-scan.outputs.bundle-path }}"
+              "relatedSpdxElement": "SPDXRef-Attestation-VulnScan",
+              "comment": "Vulnerability Scan Attestation"
             },
             {
               "spdxElementId": "SPDXRef-Container",
               "relationshipType": "HAS_VULNERABILITY_SCAN",
-              "relatedSpdxElement": "trivy-source-results.sarif"
+              "relatedSpdxElement": "SPDXRef-VulnScanResults"
             }
           ],
           "externalDocumentRefs": [
@@ -269,14 +275,38 @@ jobs:
                 "algorithm": "SHA256",
                 "checksumValue": "${{ steps.build.outputs.digest }}"
               }
+            },
+            {
+              "externalDocumentId": "DocumentRef-Attestation-Provenance",
+              "spdxDocument": "${{ steps.provenance.outputs.attestation-url }}",
+              "checksum": {
+                "algorithm": "SHA256",
+                "checksumValue": "${{ steps.provenance.outputs.bundle-path }}"
+              }
+            },
+            {
+              "externalDocumentId": "DocumentRef-Attestation-VulnScan",
+              "spdxDocument": "${{ steps.vuln-scan.outputs.attestation-url }}",
+              "checksum": {
+                "algorithm": "SHA256",
+                "checksumValue": "${{ steps.vuln-scan.outputs.bundle-path }}"
+              }
             }
           ],
           "annotations": [
             {
+              "annotationType": "REVIEW",
+              "annotator": "Tool: GitHub Actions",
+              "annotationDate": "$(date -u --iso-8601=seconds)",
+              "annotationComment": "Security scan results: ${{ needs.security-scan.outputs.scan-results }}",
+              "annotationSPDXID": "SPDXRef-Container"
+            },
+            {
               "annotationType": "OTHER",
               "annotator": "Tool: GitHub Actions",
               "annotationDate": "$(date -u --iso-8601=seconds)",
-              "annotationComment": "Security scan results: ${{ needs.security-scan.outputs.scan-results }}"
+              "annotationComment": "This SBOM links to SLSA provenance and vulnerability scan attestations for complete supply chain transparency",
+              "annotationSPDXID": "SPDXRef-DOCUMENT"
             }
           ]
         }
