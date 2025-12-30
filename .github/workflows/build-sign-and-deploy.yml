@@ -215,6 +215,11 @@ jobs:
         subject-digest: ${{ steps.build.outputs.digest }}
         push-to-registry: true
 
+    - name: Debug provenance outputs
+      run: |
+        echo "🔍 Provenance outputs:"
+        echo "bundle-path: ${{ steps.provenance.outputs.bundle-path }}"
+
     - name: Attest vulnerability scan results
       id: vuln-scan
       uses: actions/attest@v1
@@ -243,6 +248,11 @@ jobs:
             },
             "scanner.result": "trivy-source-results.json"
           }
+
+    - name: Debug vulnerability scan outputs
+      run: |
+        echo "🔍 Vulnerability scan outputs:"
+        echo "bundle-path: ${{ steps.vuln-scan.outputs.bundle-path }}"
 
     - name: Generate SBOM with Syft
       run: |
@@ -477,12 +487,14 @@ jobs:
         echo "- 🛡️ [Security Scan Results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
         echo "- 📋 [Security Scan Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ needs.security-scan.outputs.security-artifact-id }})" >> $GITHUB_STEP_SUMMARY
         echo "- 📄 [SBOM Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.upload-sbom.outputs.artifact-id }})" >> $GITHUB_STEP_SUMMARY
-        echo "- 🔐 [SLSA Provenance](${{ steps.provenance.outputs.bundle-path }})" >> $GITHUB_STEP_SUMMARY
-        echo "- 🔍 [Vulnerability Scan](${{ steps.vuln-scan.outputs.bundle-path }})" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔐 SLSA Provenance: Attestation attached to image" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔍 Vulnerability Scan: Attestation attached to image" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📜 Attestation Details" >> $GITHUB_STEP_SUMMARY
-        echo "- Provenance Attestation ID: \`${{ steps.provenance.outputs.attestation-id }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- Vulnerability Attestation ID: \`${{ steps.vuln-scan.outputs.attestation-id }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "### ✅ Verification" >> $GITHUB_STEP_SUMMARY
+        echo "Verify attestations using:" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "gh attestation verify oci://${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}@${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
     - name: Comment build summary on PR
       if: github.event_name == 'pull_request'
@@ -525,6 +537,26 @@ jobs:
             }
           }
 
+          // Build attestation links with fallbacks
+          let provenanceLink = '';
+          let vulnScanLink = '';
+          
+          if ('${{ steps.provenance.outputs.bundle-path }}') {
+            provenanceLink = '- 🔐 [SLSA Provenance](${{ steps.provenance.outputs.bundle-path }})';
+          } else if ('${{ steps.provenance.outputs.attestation-id }}') {
+            provenanceLink = '- 🔐 SLSA Provenance: Attestation created (ID: `${{ steps.provenance.outputs.attestation-id }}`)';
+          } else {
+            provenanceLink = '- 🔐 SLSA Provenance: View in [GitHub Attestations](https://github.com/${{ github.repository }}/attestations)';
+          }
+          
+          if ('${{ steps.vuln-scan.outputs.bundle-path }}') {
+            vulnScanLink = '- 🔍 [Vulnerability Scan](${{ steps.vuln-scan.outputs.bundle-path }})';
+          } else if ('${{ steps.vuln-scan.outputs.attestation-id }}') {
+            vulnScanLink = '- 🔍 Vulnerability Scan: Attestation created (ID: `${{ steps.vuln-scan.outputs.attestation-id }}`)';
+          } else {
+            vulnScanLink = '- 🔍 Vulnerability Scan: View in [GitHub Attestations](https://github.com/${{ github.repository }}/attestations)';
+          }
+
           const summary = `## 🚀 Build Summary
 
           | Field | Value |
@@ -546,12 +578,14 @@ jobs:
           - 🛡️ [Security Scan Results](https://github.com/${{ github.repository }}/actions/runs/${context.runId})
           - 📋 [Security Scan Artifacts](https://github.com/${{ github.repository }}/actions/runs/${context.runId}/artifacts/${{ needs.security-scan.outputs.security-artifact-id }})
           - 📄 [SBOM Artifacts](https://github.com/${{ github.repository }}/actions/runs/${context.runId}/artifacts/${{ steps.upload-sbom.outputs.artifact-id }})
-          - 🔐 [SLSA Provenance](${{ steps.provenance.outputs.bundle-path }})
-          - 🔍 [Vulnerability Scan](${{ steps.vuln-scan.outputs.bundle-path }})
+          - 🔐 SLSA Provenance: Attestation attached to image
+          - 🔍 Vulnerability Scan: Attestation attached to image
 
-          ### 📜 Attestation Details
-          - Provenance Attestation ID: \`${{ steps.provenance.outputs.attestation-id }}\`
-          - Vulnerability Attestation ID: \`${{ steps.vuln-scan.outputs.attestation-id }}\`
+          ### ✅ Verification
+          Verify attestations using:
+          \`\`\`bash
+          gh attestation verify oci://${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          \`\`\`
 
           _This comment was automatically generated by the build workflow at ${timestampFormatted}._`;
 
