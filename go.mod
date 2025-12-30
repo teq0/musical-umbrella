@@ -1,6 +1,6 @@
 module github.com/teq0/musical-umbrella
 
-go 1.19
+go 1.23
 
 require go.uber.org/zap v1.27.1
 

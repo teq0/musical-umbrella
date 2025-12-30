@@ -109,18 +109,22 @@ jobs:
       with:
         name: security-scan-results
 
-    - name: Read VERSION file
+    - name: Determine version from ref
       id: version
       run: |
-        if [ -f VERSION ]; then
-          version=$(cat VERSION | tr -d '\n\r' | tr -d '[:space:]')
-          if [ -z "$version" ]; then
-            version="0.0.0"
-          fi
+        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          # Use the tag as version (strip 'v' prefix)
+          version=${GITHUB_REF#refs/tags/v}
+        elif [ "${{ github.event_name }}" == "pull_request" ]; then
+          # For PRs, use 0.0.0-pr with PR number
+          version="0.0.0-pr${{ github.event.pull_request.number }}"
         else
-          version="0.0.0"
+          # For main branch, use 0.0.0-dev with short SHA
+          version="0.0.0-dev-$(git rev-parse --short HEAD)"
         fi
+        
         echo "version=$version" >> $GITHUB_OUTPUT
+        echo "Using version: $version"
 
     - name: Get short SHA
       id: sha
@@ -561,3 +565,156 @@ jobs:
             repo: context.repo.repo,
             body: summary
           });
+
+  create-release:
+    needs: [security-scan, build-and-deploy]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    permissions:
+      contents: write
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Calculate next version
+      id: next-version
+      run: |
+        # Get latest tag or default to v0.0.0
+        latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+        version=${latest_tag#v}
+        
+        # Parse version
+        IFS='.' read -r major minor patch <<< "$version"
+        
+        # Check commit messages since last tag for version bump type
+        commits=$(git log ${latest_tag}..HEAD --pretty=format:"%s" 2>/dev/null || git log --pretty=format:"%s")
+        
+        # Determine bump type from conventional commits
+        if echo "$commits" | grep -qE "^(feat|feature)(\(.+\))?!:|^BREAKING CHANGE:"; then
+          # Breaking change = major bump
+          major=$((major + 1))
+          minor=0
+          patch=0
+        elif echo "$commits" | grep -qE "^(feat|feature)(\(.+\))?:"; then
+          # New feature = minor bump
+          minor=$((minor + 1))
+          patch=0
+        else
+          # Everything else = patch bump
+          patch=$((patch + 1))
+        fi
+        
+        new_version="${major}.${minor}.${patch}"
+        echo "version=$new_version" >> $GITHUB_OUTPUT
+        echo "📦 Next version: v${new_version} (from ${latest_tag})"
+
+    - name: Read VERSION file
+      id: version
+      run: |
+        # Try to get version from latest git tag first
+        if git describe --tags --abbrev=0 2>/dev/null; then
+          latest_tag=$(git describe --tags --abbrev=0)
+          version=${latest_tag#v}
+        elif [ -f VERSION ]; then
+          # Fallback to VERSION file
+          version=$(cat VERSION | tr -d '\n\r' | tr -d '[:space:]')
+        else
+          # Default version
+          version="0.0.0"
+        fi
+        
+        # For PRs, add PR number
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          version="${version}-pr${{ github.event.pull_request.number }}"
+        fi
+        
+        # Ensure version is not empty
+        if [ -z "$version" ]; then
+          version="0.0.0"
+        fi
+        
+        echo "version=$version" >> $GITHUB_OUTPUT
+        echo "📦 Using version: $version"
+
+    - name: Get short SHA
+      id: sha
+      run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+    - name: Download SBOM artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: sbom-artifacts
+
+    - name: Download security scan results
+      uses: actions/download-artifact@v4
+      with:
+        name: security-scan-results
+
+    - name: Generate release notes
+      id: release-notes
+      run: |
+        cat > release-notes.md << 'EOF'
+        ## 🚀 Release ${{ steps.version.outputs.version }}-${{ steps.sha.outputs.sha }}
+
+        This release was automatically created from a merge to the default branch.
+
+        ### 📦 Container Images
+        - **Image**: `${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}:${{ steps.version.outputs.version }}-${{ steps.sha.outputs.sha }}`
+        - **Image**: `${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}:latest`
+        - **Digest**: `${{ needs.build-and-deploy.outputs.image-digest }}`
+
+        ### 🔗 Verification
+        Verify the container image attestations:
+        ```bash
+        gh attestation verify oci://${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE_NAME }}@${{ needs.build-and-deploy.outputs.image-digest }}
+        ```
+
+        ### 📋 Supply Chain Artifacts
+        - **SBOM**: `sbom-extended.spdx.json` - Software Bill of Materials in SPDX format
+        - **SBOM Signature**: `sbom.sig` - Sigstore/Cosign signature for SBOM
+        - **SBOM Certificate**: `sbom.crt` - Signing certificate for SBOM verification
+        - **Security Scan Results**: `trivy-source-results.json` - Trivy vulnerability scan results
+        - **SARIF Report**: `trivy-source-results.sarif` - Security findings in SARIF format
+
+        ### 🛡️ Security
+        - ✅ Source code scanned for vulnerabilities
+        - ✅ SLSA Build Provenance attestation attached
+        - ✅ Vulnerability scan attestation attached
+        - ✅ SBOM generated and signed
+        - 📊 Total vulnerabilities found: ${{ fromJSON(needs.security-scan.outputs.scan-results).total_vulnerabilities }}
+
+        ### 🔐 Attestations
+        - **Provenance**: SLSA Build Level attestation for supply chain integrity
+        - **Vulnerability Scan**: In-toto vulnerability attestation with Trivy results
+
+        ### 📜 Commit Information
+        - **Commit SHA**: `${{ github.sha }}`
+        - **Author**: ${{ github.actor }}
+        - **Workflow Run**: [View Details](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+        EOF
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ steps.next-version.outputs.version }}
+        name: Release v${{ steps.next-version.outputs.version }}
+        body_path: release-notes.md
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+        files: |
+          sbom-extended.spdx.json
+          sbom.sig
+          sbom.crt
+          trivy-source-results.json
+          trivy-source-results.sarif
+
+    - name: Update latest tag
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git tag -f latest
+        git push -f origin latest
