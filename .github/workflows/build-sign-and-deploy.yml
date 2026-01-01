@@ -86,7 +86,7 @@ jobs:
     needs: security-scan
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write  # Changed from 'read' to 'write' for Dependency Graph submission
       packages: write
       id-token: write
       attestations: write
@@ -393,6 +393,7 @@ jobs:
       uses: advanced-security/spdx-dependency-submission-action@v0.0.1
       with:
         filePath: sbom-extended.spdx.json
+      continue-on-error: true  # Don't fail the build if submission fails
 
     - name: Clean up old PR artifacts
       if: github.event_name == 'pull_request'
