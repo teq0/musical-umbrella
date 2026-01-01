@@ -45,7 +45,7 @@ func MagicHandler(logger *zap.Logger) http.HandlerFunc {
 
 		logger.Debug("fetching XKCD comic", zap.Int("comic_number", comicNum))
 
-		// Fetch the XKCD comic
+		// Fetch the XKCD comic!
 		resp, err := http.Get(fmt.Sprintf("https://xkcd.com/%d/info.0.json", comicNum))
 		if err != nil {
 			logger.Error("failed to fetch XKCD comic",
